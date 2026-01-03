@@ -1,7 +1,7 @@
 import logging
 import time
 from pathlib import Path
-from icrawler.builtin import GoogleImageCrawler
+from icrawler.builtin import BingImageCrawler
 
 
 class ImageDownloader:
@@ -11,7 +11,7 @@ class ImageDownloader:
     def download_image(self, word):
         for _ in range(5):
             try:
-                GoogleImageCrawler(
+                BingImageCrawler(
                     storage={'root_dir': str(self.working_dir)},
                     log_level=logging.ERROR
                 ).crawl(

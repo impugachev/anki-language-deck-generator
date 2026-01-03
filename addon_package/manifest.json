@@ -2,6 +2,6 @@
     "name": "Language Deck Generator",
     "package": "anki_language_deck_generator",
     "homepage": "https://github.com/impugachev/anki-language-deck-generator",
-    "mod": 20250629,
-    "human_version": "0.5.2"
+    "mod": 20260103,
+    "human_version": "0.5.3"
 }
