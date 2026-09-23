@@ -45,7 +45,7 @@ The following languages are available for both source and target:
 - Swedish
 - Turkish
 
-> **Note:** For Dutch, additional information (such as article, plural, transcription, part of speech, and images) is fetched from Dutch Wiktionary for richer cards.
+> **Note:** For Dutch, additional information (such as article, plural, transcription, part of speech, and images) is fetched from Dutch Wiktionary for richer cards. Nouns may be entered with their article ("de trap", "het huis") and reflexive verbs with "zich" ("zich wassen"); dictionaries are looked up by the bare word.
 
 ## Installation
 

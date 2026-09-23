@@ -13,6 +13,7 @@
 - Fallback translation via Google Translate, then MyMemory, when Glosbe has no dictionary entry. Results that are not in the target script are rejected. Such cards are listed for review at the end of the run.
 - The report at the end of a run names every failed word with the reason, and every card that should be checked.
 - Reflexive verbs entered as "zich ..." (for example "zich wassen") get their Dutch Wiktionary data from the bare infinitive, while the translation, audio and image keep the full phrase.
+- Dutch nouns can be entered with their article ("de trap", "het huis"). Dictionaries are looked up by the bare noun, the card shows Wiktionary's article (or the typed one when Wiktionary has none, with a note if they differ), and "de trap" and "trap" are the same card.
 
 ### Packaging
 - New dependency `deep-translator` (vendored in the addon package).

@@ -18,6 +18,15 @@ from anki_language_deck_generator.tatoeba_usage_fetcher import UsageExampleFetch
 from anki_language_deck_generator.translators import TranslationNotFoundError
 
 ID_RANGE_START = 2 ** 30
+DUTCH_ARTICLES = ('de', 'het', 'de/het')
+
+
+def split_dutch_article(word):
+    """'het huis' -> ('het', 'huis'); 'huis' -> (None, 'huis')."""
+    parts = word.split(maxsplit=1)
+    if len(parts) == 2 and parts[0].lower() in DUTCH_ARTICLES:
+        return parts[0].lower(), parts[1]
+    return None, word
 
 
 def _stable_id(*parts):
@@ -128,14 +137,17 @@ class AnkiDeckGenerator:
             css=self._load_css(),
         )
 
-    def _translate(self, word):
-        """Glosbe first, then machine translation (with a note for the user) if Glosbe has nothing."""
+    def _translate(self, word, headword):
+        """Glosbe first, then machine translation (with a note for the user) if Glosbe has nothing.
+
+        `headword` is looked up; `word` (as typed) labels the note.
+        """
         try:
-            return self.translator.translate(word)
+            return self.translator.translate(headword)
         except TranslationNotFoundError as e:
             logging.warning(f'{e}, falling back to machine translation')
         try:
-            translation = self.fallback_translator.translate(word)
+            translation = self.fallback_translator.translate(headword)
         except TranslationNotFoundError as e:
             raise TranslationNotFoundError(f'Glosbe has no translation and {e}') from e
         self.warnings.append((
@@ -144,10 +156,13 @@ class AnkiDeckGenerator:
         ))
         return translation
 
-    def _fetch_dutch_wiktionary(self, word):
-        """Optional enrichment from Dutch Wiktionary. Empty if the page is unavailable."""
+    def _fetch_dutch_wiktionary(self, word, headword):
+        """Optional enrichment from Dutch Wiktionary. Empty if the page is unavailable.
+
+        `headword` is looked up; `word` (as typed) labels the note.
+        """
         try:
-            wiktionary = DutchWiktionaryWord(word, self.working_dir, session=self.session)
+            wiktionary = DutchWiktionaryWord(headword, self.working_dir, session=self.session)
             return {
                 'article': wiktionary.try_get_article(),
                 # the sound quality is poor, so gTTS is always used instead
@@ -164,26 +179,39 @@ class AnkiDeckGenerator:
     def _make_note(self, word):
         self._make_word_dir(word)
 
-        translation = self._translate(word)
-        usage = self.usage_fetcher.fetch_usage(word)
+        # A Dutch noun may be entered with its article ('het huis'). Dictionaries are
+        # looked up by the bare noun; audio and image use the phrase as typed.
+        given_article, headword = None, word
+        if self.source_language == 'Dutch':
+            given_article, headword = split_dutch_article(word)
+
+        translation = self._translate(word, headword)
+        usage = self.usage_fetcher.fetch_usage(headword)
 
         enrichment = {}
         if self.source_language == 'Dutch':
-            enrichment = self._fetch_dutch_wiktionary(word)
-        article = enrichment.get('article')
+            enrichment = self._fetch_dutch_wiktionary(word, headword)
+        article = enrichment.get('article') or given_article
+        if given_article and article != given_article:
+            self.warnings.append((
+                word,
+                f"Dutch Wiktionary gives the article '{article}', the card uses that",
+            ))
         image_file = enrichment.get('image_file')
         transcription = enrichment.get('transcription')
         part_of_speech = enrichment.get('part_of_speech')
         plural = enrichment.get('plural')
 
-        sound_file = self.voice.download_sound(word)
+        # When an article was typed, the audio says the article shown on the card
+        spoken = f'{article} {headword}' if given_article and article else word
+        sound_file = self.voice.download_sound(spoken)
         if image_file is None:
             image_file = self.image_downloader.download_image(word)
 
         note = genanki.Note(
             model=self.model,
             fields=[
-                f'{article} {word}' if article else word,
+                f'{article} {headword}' if article else headword,
                 translation,
                 f'<img src="{image_file.name}">' if image_file else '',
                 f'[sound:{sound_file.name}]' if sound_file else '',
@@ -192,8 +220,9 @@ class AnkiDeckGenerator:
                 part_of_speech or '',
                 f'Plural: {plural}' if plural else ''
             ],
-            # Stable per word, so re-running a word updates its card instead of duplicating it
-            guid=genanki.guid_for(self.source_language, self.target_language, word),
+            # Stable per word (without the article), so re-running a word updates
+            # its card instead of duplicating it
+            guid=genanki.guid_for(self.source_language, self.target_language, headword),
         )
         media_files = []
         if sound_file:

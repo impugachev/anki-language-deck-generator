@@ -8,6 +8,7 @@ from anki_language_deck_generator.deck_generator import (
     AnkiDeckGenerator,
     _stable_id,
     format_report,
+    split_dutch_article,
 )
 from anki_language_deck_generator.dutch_wiktionary import WiktionaryUnavailableError
 from anki_language_deck_generator.translators import TranslationNotFoundError
@@ -40,6 +41,7 @@ def generator(tmp_path):
         deck_generator.mocks = SimpleNamespace(
             glosbe=translators.glosbe.Translator.return_value,
             machine=translators.machine.Translator.return_value,
+            voice=voice.return_value,
             images=images.return_value,
             wiktionary=wiktionary,
         )
@@ -115,6 +117,77 @@ def test_failed_word_drops_its_notes(generator):
 
     assert generator.failed_words == [('ziek', 'Bing image search returned no image')]
     assert generator.warnings == []
+
+
+@pytest.mark.parametrize('word, expected', [
+    ('het huis', ('het', 'huis')),
+    ('De trap', ('de', 'trap')),
+    ('de/het idee', ('de/het', 'idee')),
+    ('huis', (None, 'huis')),
+    ('de', (None, 'de')),
+    ('zich wassen', (None, 'zich wassen')),
+])
+def test_split_dutch_article(word, expected):
+    assert split_dutch_article(word) == expected
+
+
+def test_noun_with_article_is_looked_up_without_it(generator):
+    generator.add_word('de ziek')
+
+    generator.mocks.glosbe.translate.assert_called_once_with('ziek')
+    generator.mocks.wiktionary.assert_called_once()
+    assert generator.mocks.wiktionary.call_args.args[0] == 'ziek'
+    [note] = generator.deck.notes
+    assert note.fields[0] == 'de ziek'
+    assert note.guid == genanki.guid_for('Dutch', 'Russian', 'ziek')
+    assert generator.warnings == []
+
+
+def test_wiktionary_article_wins_over_a_wrong_one_with_a_note(generator):
+    generator.add_word('het ziek')
+
+    [note] = generator.deck.notes
+    assert note.fields[0] == 'de ziek'
+    # the audio says what the card shows, not the wrong article that was typed
+    generator.mocks.voice.download_sound.assert_called_once_with('de ziek')
+    assert generator.warnings == [
+        ('het ziek', "Dutch Wiktionary gives the article 'de', the card uses that")
+    ]
+
+
+def test_audio_is_the_word_as_typed_when_no_article_was_given(generator):
+    generator.add_word('ziek')
+
+    generator.mocks.voice.download_sound.assert_called_once_with('ziek')
+
+
+def test_notes_are_labelled_with_the_word_as_typed(generator):
+    generator.mocks.glosbe.translate.side_effect = TranslationNotFoundError('no entry')
+    generator.mocks.wiktionary.side_effect = WiktionaryUnavailableError('HTTP error 429')
+
+    generator.add_word('de ziek')
+
+    assert [word for word, _ in generator.warnings] == ['de ziek', 'de ziek']
+
+
+def test_given_article_is_used_when_wiktionary_has_none(generator):
+    generator.mocks.wiktionary.return_value.try_get_article.return_value = None
+
+    generator.add_word('het ziek')
+
+    [note] = generator.deck.notes
+    assert note.fields[0] == 'het ziek'
+    assert generator.warnings == []
+
+
+def test_articles_are_not_split_for_other_source_languages(generator, tmp_path):
+    spanish = AnkiDeckGenerator('Test deck', 'Spanish', 'Russian', tmp_path)
+
+    spanish.add_word('de nada')
+
+    spanish.translator.translate.assert_called_once_with('de nada')
+    [note] = spanish.deck.notes
+    assert note.fields[0] == 'de nada'
 
 
 def test_ids_are_stable_across_runs(tmp_path):
