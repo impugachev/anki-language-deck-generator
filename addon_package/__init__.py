@@ -25,7 +25,7 @@ def _setup_path():
 
 _setup_path()
 
-from bs4.builder import register_treebuilders_from, _lxml
-register_treebuilders_from(_lxml)
-
+# Nothing from the bundled binary dependencies (lxml, Pillow) may be imported
+# here: Windows cannot delete a loaded DLL, and Anki updates an add-on by
+# deleting its folder first. They are loaded when the dialog is opened.
 from . import anki_language_deck_generator

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.6.1 (2026-09-24)
+
+### Fixed
+- Updating the add-on inside Anki failed with "PermissionError ... lxml\etree.cp39-win_amd64.pyd": the add-on loaded its bundled lxml at Anki startup, and Windows cannot delete a loaded DLL while Anki removes the old version. The bundled binary dependencies are now loaded only when the dialog is opened. If you have used the add-on in the current Anki session, restart Anki before updating it.
+
 ## 0.6.0 (2026-09-23)
 
 ### Fixed

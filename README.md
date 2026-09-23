@@ -61,6 +61,8 @@ pip install .
 4. Enter the addon code: 290385946
 5. Restart Anki
 
+> **Updating the addon:** if you have used the addon in the current Anki session, restart Anki before updating it. Windows cannot remove the addon's loaded libraries while they are in use, and Anki removes the old version before installing the new one.
+
 ## Usage
 
 ### Standalone tool:
