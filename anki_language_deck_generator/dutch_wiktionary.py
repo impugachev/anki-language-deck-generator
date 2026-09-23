@@ -1,45 +1,53 @@
 from pathlib import Path
-import requests
 from bs4 import BeautifulSoup
+
+from anki_language_deck_generator.http_utils import get_with_retry, make_session
+
+
+# Hosts that serve Wikimedia media files (thumbnails moved to thumb.wikimedia.org)
+WIKIMEDIA_MEDIA_HOSTS = ('//upload.wikimedia.org', '//thumb.wikimedia.org')
 
 
 class WordNotFoundError(Exception):
-    pass
+    """Dutch Wiktionary has no page for the word."""
 
 
-class NoNederlandsSectionError(Exception):
-    pass
+class WiktionaryUnavailableError(Exception):
+    """Dutch Wiktionary did not return the page (rate limited, server error, ...)."""
 
 
 class DutchWiktionaryWord:
-    def __init__(self, word, working_dir):
+    API_URL = 'https://nl.wiktionary.org/w/api.php'
+
+    def __init__(self, word, working_dir, session=None):
         self.working_dir = Path(working_dir)
         self.word = word
-        self.session = requests.Session()
-        self.session.headers.update(
-            {
-                'User-Agent': (
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 '
-                    '(KHTML, like Gecko) Chrome/58.0.3029.110 Safari/537.3'
-                )
-            }
-        )
-        response = self.session.get(
-            f'https://nl.wiktionary.org/w/api.php'
-            f'?action=parse&format=json&prop=text%7Clanglinks'
-            f'&formatversion=2&utf8=1&page={word}'
+        self.session = session or make_session()
+        response = get_with_retry(
+            self.session,
+            self.API_URL,
+            params={
+                'action': 'parse',
+                'format': 'json',
+                'prop': 'text|langlinks',
+                'formatversion': '2',
+                'utf8': '1',
+                'page': word,
+            },
         )
         if response.status_code != 200:
-            raise WordNotFoundError(f"HTTP error {response.status_code} when looking up word '{word}'")
+            hint = ' (rate limited, try again later)' if response.status_code == 429 else ''
+            raise WiktionaryUnavailableError(
+                f"HTTP error {response.status_code} from Dutch Wiktionary when looking up '{word}'{hint}"
+            )
 
         data = response.json()
         if 'error' in data:
-            raise WordNotFoundError(f"Word '{word}' not found in Wiktionary")
+            raise WordNotFoundError(f"Word '{word}' not found in Dutch Wiktionary")
 
-        # Store translations
-        self.translations = data['parse'].get('langlinks')
-        if self.translations is None:
-            raise WordNotFoundError(f"No translations found for word '{word}'")
+        # Interwiki links to the same word on other-language Wiktionaries.
+        # These are not translations; kept for backwards compatibility.
+        self.translations = data['parse'].get('langlinks') or []
 
         # Get Dutch content
         self.soup = BeautifulSoup(data['parse']['text'], 'html.parser')
@@ -49,7 +57,7 @@ class DutchWiktionaryWord:
         for a in self.soup.find_all("a", class_="internal"):
             href = a.get('href', '')
             title = a.get('title', '')
-            if href.startswith('//upload.wikimedia.org') and title.endswith('.ogg'):
+            if href.startswith(WIKIMEDIA_MEDIA_HOSTS) and title.endswith('.ogg'):
                 return "https:" + href
         return None
 
@@ -63,7 +71,7 @@ class DutchWiktionaryWord:
                 if width < 50:
                     continue
                 src = img['src']
-                if src.startswith('//upload.wikimedia.org'):
+                if src.startswith(WIKIMEDIA_MEDIA_HOSTS):
                     return "https:" + src
 
         # Then try regular content images
@@ -74,7 +82,7 @@ class DutchWiktionaryWord:
                     continue
                 src = img['src']
                 if (
-                    src.startswith('//upload.wikimedia.org') and
+                    src.startswith(WIKIMEDIA_MEDIA_HOSTS) and
                     not src.endswith(('Icon.svg.png', 'Symbol.svg.png'))
                 ):
                     return "https:" + src
@@ -152,36 +160,30 @@ class DutchWiktionaryWord:
                             return cells[meervoud_col].get_text(strip=True)
         return None
 
+    def _download(self, url, kind):
+        """Download a media file next to the word and return its path"""
+        extension = url.rsplit('.', 1)[-1]
+        file_path = self.working_dir / self.word / f'{self.word}.{extension}'
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        response = get_with_retry(self.session, url)
+        if response.status_code != 200:
+            raise WiktionaryUnavailableError(
+                f"HTTP error {response.status_code} when downloading {kind} file from '{url}'"
+            )
+        with file_path.open('wb') as f:
+            f.write(response.content)
+        return file_path
+
     def try_download_sound(self):
         """Download the sound file and return the path"""
         sound_url = self.try_get_sound_file_url()
         if sound_url:
-            extension = sound_url.rsplit('.', 1)[-1]
-            sound_file_path = self.working_dir / self.word / f'{self.word}.{extension}'
-            sound_file_path.parent.mkdir(parents=True, exist_ok=True)
-            response = self.session.get(sound_url)
-            if response.status_code != 200:
-                raise WordNotFoundError(
-                    f"HTTP error {response.status_code} when downloading sound file from '{sound_url}'"
-                )
-            with sound_file_path.open('wb') as f:
-                f.write(response.content)
-            return sound_file_path
+            return self._download(sound_url, 'sound')
         return None
 
     def try_download_image(self):
         """Download the image file and return the path"""
         image_url = self.try_get_image_url()
         if image_url:
-            extension = image_url.rsplit('.', 1)[-1]
-            image_file_path = self.working_dir / self.word / f'{self.word}.{extension}'
-            image_file_path.parent.mkdir(parents=True, exist_ok=True)
-            response = self.session.get(image_url)
-            if response.status_code != 200:
-                raise WordNotFoundError(
-                    f"HTTP error {response.status_code} when downloading image file from '{image_url}'"
-                )
-            with image_file_path.open('wb') as f:
-                f.write(response.content)
-            return image_file_path
+            return self._download(image_url, 'image')
         return None

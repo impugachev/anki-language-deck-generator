@@ -1,11 +1,16 @@
+import re
+
 from setuptools import setup, find_packages
 
 with open('README.md', 'r', encoding='utf-8') as fh:
     long_description = fh.read()
 
+with open('anki_language_deck_generator/version.py', 'r', encoding='utf-8') as fh:
+    version = re.search(r"__version__ = '([^']+)'", fh.read()).group(1)
+
 setup(
     name='anki-language-deck-generator',
-    version='0.5.0',
+    version=version,
     author='Igor Pugachev',
     description='A tool to automatically generate Anki decks for language learning',
     long_description=long_description,
@@ -28,6 +33,7 @@ setup(
         'requests==2.32.3',
         'beautifulsoup4==4.12.3',
         'gTTS==2.5.4',
+        'deep-translator==1.11.4',
     ],
     extras_require={
         'dev': [

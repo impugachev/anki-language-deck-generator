@@ -1,12 +1,51 @@
-import random
+import hashlib
 import logging
 from pathlib import Path
+
 import genanki
+import requests
+
 import anki_language_deck_generator.translators as translators
+from anki_language_deck_generator.dutch_wiktionary import (
+    DutchWiktionaryWord,
+    WiktionaryUnavailableError,
+    WordNotFoundError,
+)
 from anki_language_deck_generator.google_voice import GoogleVoice
-from anki_language_deck_generator.dutch_wiktionary import DutchWiktionaryWord
+from anki_language_deck_generator.http_utils import make_session
 from anki_language_deck_generator.image_downloader import ImageDownloader
 from anki_language_deck_generator.tatoeba_usage_fetcher import UsageExampleFetcher
+from anki_language_deck_generator.translators import TranslationNotFoundError
+
+ID_RANGE_START = 2 ** 30
+
+
+def _stable_id(*parts):
+    """Deterministic Anki model/deck id in [2**30, 2**31) built from `parts`.
+
+    Anki matches note types and decks by id, so the id must be the same on
+    every run: a random id makes Anki import a new note type each time and
+    rename it with a '+' suffix.
+    """
+    digest = hashlib.sha1('/'.join(parts).encode('utf-8')).digest()
+    return ID_RANGE_START + int.from_bytes(digest[:4], 'big') % ID_RANGE_START
+
+
+def format_report(failed_words, warnings):
+    """Plain-text report of failed words (with reasons) and cards that need a check."""
+    lines = []
+    if failed_words:
+        lines.append('Failed words (no card was created, copy this list to re-run them):')
+        lines.extend(word for word, _ in failed_words)
+        lines.append('')
+        lines.append('Reasons:')
+        lines.extend(f'{word}: {reason}' for word, reason in failed_words)
+    if warnings:
+        if lines:
+            lines.append('')
+        lines.append('Notes (a card was created, but please check it):')
+        lines.extend(f'{word}: {note}' for word, note in warnings)
+    return '\n'.join(lines)
 
 
 class AnkiDeckGenerator:
@@ -16,18 +55,32 @@ class AnkiDeckGenerator:
         self.target_language = target_language
         self.working_dir = Path(working_dir)
         self.progress_callback = progress_callback
-        self.deck = genanki.Deck(random.randint(1, 2**31 - 1), deck_name)
+        self.deck = genanki.Deck(_stable_id('deck', deck_name), deck_name)
         self.media = []
         self.model = self._generate_model()
 
-        # Track failed words
+        # (word, reason) for words that got no card
         self.failed_words = []
+        # (word, note) for words that got a card which should be checked
+        self.warnings = []
 
-        # Initialize helper classes
-        self.translator = translators.glosbe.Translator(self.source_language, self.target_language)
-        self.reverso_voice = GoogleVoice(self.source_language, self.working_dir)
+        # Initialize helper classes. One HTTP session is shared by the scrapers.
+        self.session = make_session()
+        self.translator = translators.glosbe.Translator(
+            self.source_language, self.target_language, session=self.session
+        )
+        self.fallback_translator = translators.machine.Translator(
+            self.source_language, self.target_language
+        )
+        self.voice = GoogleVoice(self.source_language, self.working_dir)
         self.image_downloader = ImageDownloader(self.working_dir)
-        self.usage_fetcher = UsageExampleFetcher(self.source_language, self.target_language)
+        self.usage_fetcher = UsageExampleFetcher(
+            self.source_language, self.target_language, session=self.session
+        )
+
+    @property
+    def failed_word_names(self):
+        return [word for word, _ in self.failed_words]
 
     def _make_word_dir(self, word):
         (self.working_dir / word).mkdir(parents=True, exist_ok=True)
@@ -48,7 +101,7 @@ class AnkiDeckGenerator:
 
     def _generate_model(self):
         return genanki.Model(
-            random.randint(1, 2**31 - 1),
+            _stable_id('model', self.source_language, self.target_language),
             f'Generated Model {self.source_language} to {self.target_language}',
             fields=[
                 {'name': self.source_language},
@@ -75,38 +128,61 @@ class AnkiDeckGenerator:
             css=self._load_css(),
         )
 
+    def _translate(self, word):
+        """Glosbe first, then machine translation (with a note for the user) if Glosbe has nothing."""
+        try:
+            return self.translator.translate(word)
+        except TranslationNotFoundError as e:
+            logging.warning(f'{e}, falling back to machine translation')
+        try:
+            translation = self.fallback_translator.translate(word)
+        except TranslationNotFoundError as e:
+            raise TranslationNotFoundError(f'Glosbe has no translation and {e}') from e
+        self.warnings.append((
+            word,
+            f'translated automatically by {self.fallback_translator.last_engine}, please check',
+        ))
+        return translation
+
+    def _fetch_dutch_wiktionary(self, word):
+        """Optional enrichment from Dutch Wiktionary. Empty if the page is unavailable."""
+        try:
+            wiktionary = DutchWiktionaryWord(word, self.working_dir, session=self.session)
+            return {
+                'article': wiktionary.try_get_article(),
+                # the sound quality is poor, so gTTS is always used instead
+                'image_file': wiktionary.try_download_image(),
+                'transcription': wiktionary.try_get_transcription(),
+                'part_of_speech': wiktionary.try_get_part_of_speech(),
+                'plural': wiktionary.try_get_plural_form(),
+            }
+        except (WordNotFoundError, WiktionaryUnavailableError, requests.RequestException) as e:
+            logging.warning(f"Dutch Wiktionary data unavailable for '{word}': {e}")
+            self.warnings.append((word, f'created without Dutch Wiktionary data: {e}'))
+            return {}
+
     def _make_note(self, word):
         self._make_word_dir(word)
 
-        translation = self.translator.translate(word)
+        translation = self._translate(word)
         usage = self.usage_fetcher.fetch_usage(word)
 
-        sound_file = None
-        image_file = None
-        transcription = None
-        part_of_speech = None
-        plural = None
-        article = None
-        
-        # TODO: fix it, doesn't work now
+        enrichment = {}
         if self.source_language == 'Dutch':
-            wiktionary = DutchWiktionaryWord(word, self.working_dir)
-            # the quality is so bad, so better always use gTTS
-            # sound_file = wiktionary.try_download_sound()
-            article = wiktionary.try_get_article()
-            image_file = wiktionary.try_download_image()
-            transcription = wiktionary.try_get_transcription()
-            part_of_speech = wiktionary.try_get_part_of_speech()
-            plural = wiktionary.try_get_plural_form()
+            enrichment = self._fetch_dutch_wiktionary(word)
+        article = enrichment.get('article')
+        image_file = enrichment.get('image_file')
+        transcription = enrichment.get('transcription')
+        part_of_speech = enrichment.get('part_of_speech')
+        plural = enrichment.get('plural')
 
-        if sound_file is None:
-            sound_file = self.reverso_voice.download_sound(word)
-
+        sound_file = self.voice.download_sound(word)
         if image_file is None:
             image_file = self.image_downloader.download_image(word)
 
         note = genanki.Note(
-            model=self.model, fields=[
+            model=self.model,
+            fields=[
                 f'{article} {word}' if article else word,
                 translation,
                 f'<img src="{image_file.name}">' if image_file else '',
@@ -115,7 +191,9 @@ class AnkiDeckGenerator:
                 transcription or '',
                 part_of_speech or '',
                 f'Plural: {plural}' if plural else ''
-            ]
+            ],
+            # Stable per word, so re-running a word updates its card instead of duplicating it
+            guid=genanki.guid_for(self.source_language, self.target_language, word),
         )
         media_files = []
         if sound_file:
@@ -132,8 +210,11 @@ class AnkiDeckGenerator:
             self.media.extend(media_files)
             logging.info(f"The card for the word '{word}' has been created!")
         except Exception as e:
-            logging.error(f"Error creating a card for the word '{word}': {e}")
-            self.failed_words.append(word)
+            reason = str(e) or type(e).__name__
+            logging.error(f"Error creating a card for the word '{word}': {reason}")
+            self.failed_words.append((word, reason))
+            # notes about a card that was never created are not useful
+            self.warnings = [warning for warning in self.warnings if warning[0] != word]
 
     def add_words(self, words, skip_empty=True):
         total_words = len(words)

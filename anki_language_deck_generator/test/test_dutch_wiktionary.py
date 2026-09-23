@@ -28,7 +28,7 @@ def test_try_get_sound_file_url(huis_word):
 def test_try_get_image_url(huis_word):
     url = huis_word.try_get_image_url()
     assert url is not None
-    assert url.startswith('https://upload.wikimedia.org/')
+    assert url.startswith(('https://upload.wikimedia.org/', 'https://thumb.wikimedia.org/'))
 
 
 def test_try_get_transcription(huis_word):

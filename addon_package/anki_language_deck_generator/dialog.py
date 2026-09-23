@@ -8,7 +8,7 @@ from anki.utils import int_time
 from anki.collection import ImportAnkiPackageRequest, ImportAnkiPackageOptions
 from anki.import_export_pb2 import ImportAnkiPackageUpdateCondition
 from anki_language_deck_generator.language_codes import LANGUAGES
-from anki_language_deck_generator.deck_generator import AnkiDeckGenerator
+from anki_language_deck_generator.deck_generator import AnkiDeckGenerator, format_report
 
 import tempfile
 import json
@@ -151,9 +151,9 @@ class DeckGeneratorDialog(QDialog):
                 )
                 self.main_window.deckBrowser.refresh()
 
-                # Show failed words dialog if any
-                if generator.failed_words:
-                    self.show_failed_words_dialog(generator.failed_words)
+                # Report words that failed or need a check, if any
+                if generator.failed_words or generator.warnings:
+                    self.show_report_dialog(generator.failed_words, generator.warnings)
                 else:
                     showInfo('Deck generated and imported successfully!')
                 self.accept()
@@ -166,17 +166,24 @@ class DeckGeneratorDialog(QDialog):
                 self.generate_btn.setEnabled(True)
                 self.progress_bar.hide()
 
-    def show_failed_words_dialog(self, failed_words):
-        # Show a dialog with a QTextEdit containing failed words, one per line, selectable and copyable
+    def show_report_dialog(self, failed_words, warnings):
+        # Failed words with their reasons, plus cards that were created but should be checked.
+        # The text is selectable, so the failed words can be copied back into the input.
         dialog = QDialog(self)
-        dialog.setWindowTitle('Some words failed to process')
+        dialog.setWindowTitle('Deck generated with remarks')
+        dialog.resize(640, 480)
         layout = QVBoxLayout()
         dialog.setLayout(layout)
-        label = QLabel('The following words could not be processed. You can copy them below:')
+        label = QLabel(
+            'The deck has been imported, but some words need attention.\n'
+            'Words that failed because a service was rate limited (HTTP 429) can simply be '
+            're-run later. Re-running a word updates its existing card.'
+        )
+        label.setWordWrap(True)
         layout.addWidget(label)
         text_edit = QTextEdit()
         text_edit.setReadOnly(True)
-        text_edit.setPlainText('\n'.join(failed_words))
+        text_edit.setPlainText(format_report(failed_words, warnings))
         layout.addWidget(text_edit)
         btn_layout = QHBoxLayout()
         ok_btn = QPushButton('OK')

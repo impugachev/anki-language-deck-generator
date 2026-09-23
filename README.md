@@ -8,11 +8,13 @@ A tool to automatically generate Anki decks for language learning, with translat
 
 ## Features
 
-- Automatic translation using Glosbe
+- Automatic translation using Glosbe, with Google Translate / MyMemory as a fallback for words Glosbe does not know (such cards are listed for review)
 - Image search for visual associations
 - Audio pronunciation using Google TTS
 - Usage examples from Tatoeba
 - Two-way cards (source -> target language and vice versa)
+- Re-running a word updates its existing card instead of creating a duplicate
+- A report at the end lists every word that failed, with the reason, and every card that should be checked
 - Can be used as both a standalone tool and an Anki addon
 
 ## Supported Languages

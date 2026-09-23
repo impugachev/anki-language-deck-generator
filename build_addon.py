@@ -12,6 +12,7 @@ PLATFORM_INDEPENDENT_PACKAGES = [
     'chevron==0.14.0',
     'six==1.17.0',
     'gTTS==2.5.4',
+    'deep-translator==1.11.4',
 ]
 
 BINARY_PACKAGES = [

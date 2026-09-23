@@ -5,3 +5,4 @@
 /build
 /test
 __pycache__
+*.ankiaddon

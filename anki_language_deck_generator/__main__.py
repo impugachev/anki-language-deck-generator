@@ -1,7 +1,7 @@
 import argparse
 import logging
 import tempfile
-from anki_language_deck_generator.deck_generator import AnkiDeckGenerator
+from anki_language_deck_generator.deck_generator import AnkiDeckGenerator, format_report
 
 
 def main():
@@ -40,11 +40,10 @@ def main():
     deck_generator.add_words(words)
     deck_generator.save_deck(args.output)
 
-    # Print failed words if any
-    if deck_generator.failed_words:
-        print("\nFailed words:")
-        for w in deck_generator.failed_words:
-            print(w.strip())
+    # Print failed words (with reasons) and cards that should be checked, if any
+    report = format_report(deck_generator.failed_words, deck_generator.warnings)
+    if report:
+        print('\n' + report)
 
     if not args.working_dir:
         temp_dir.cleanup()  # Clean up the temporary directory if it was used

@@ -1,5 +1,6 @@
 from urllib.parse import urlencode
-import requests
+
+from anki_language_deck_generator.http_utils import get_with_retry, make_session
 from anki_language_deck_generator.language_codes import get_language_codes
 
 
@@ -31,16 +32,17 @@ class UsageExampleFetcher:
         'Turkish': 'tur'
     }
 
-    def __init__(self, source_language, target_language):
+    def __init__(self, source_language, target_language, session=None):
         self.source_language, self.target_language = get_language_codes(
             source_language, target_language, self.LANGUAGES
         )
-        self.session = requests.Session()
+        self.session = session or make_session()
 
     def _get_usage_translation(self, usage):
         for translation_array in usage['translations']:
             for translation in translation_array:
                 return translation['text']
+        return ''
 
     def fetch_usage(self, word):
         params = {
@@ -51,15 +53,17 @@ class UsageExampleFetcher:
             'orphans': 'no',
             'unapproved': 'no',
             'trans_filter': 'limit',
-            'trans_to': 'rus',
+            'trans_to': self.target_language,
             'word_count_min': '5',
             'word_count_max': '10',
         }
         url = f'{self.TATOEBA_URL}?{urlencode(params)}'
 
-        response = self.session.get(url)
+        response = get_with_retry(self.session, url)
         if response.status_code != 200:
-            raise Exception(f'Failed to get usage examples: {response.status_code}')
+            raise Exception(
+                f'Failed to get usage examples from Tatoeba: HTTP {response.status_code}'
+            )
         usages = response.json()['results']
         result = []
         for i in range(2):

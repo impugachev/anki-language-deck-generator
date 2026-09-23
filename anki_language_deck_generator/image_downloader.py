@@ -25,7 +25,9 @@ class ImageDownloader:
                 continue
         else:
             raise RuntimeError(f"Cannot find an image for the word '{word}'")
-        image_file = next(self.working_dir.glob('000001.*'))
+        image_file = next(self.working_dir.glob('000001.*'), None)
+        if image_file is None:
+            raise RuntimeError(f"Bing image search returned no image for the word '{word}'")
         new_name = self.working_dir / word / f'{word}{image_file.suffix}'
         image_file.rename(new_name)
         return new_name
