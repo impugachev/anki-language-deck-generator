@@ -49,8 +49,41 @@ class DutchWiktionaryWord:
         # These are not translations; kept for backwards compatibility.
         self.translations = data['parse'].get('langlinks') or []
 
-        # Get Dutch content
-        self.soup = BeautifulSoup(data['parse']['text'], 'html.parser')
+        # Get Dutch content only
+        page = BeautifulSoup(data['parse']['text'], 'html.parser')
+        self.soup = self._dutch_section(page)
+        if self.soup is None:
+            raise WordNotFoundError(
+                f"Page '{word}' on Dutch Wiktionary has no Dutch (Nederlands) section"
+            )
+
+    @staticmethod
+    def _dutch_section(page):
+        """Return a soup holding only the 'Nederlands' section of the page, or None.
+
+        A Wiktionary page has one section per language. Reading the whole page
+        gave e.g. the Dutch preposition 'sinds' the article 'het', taken from the
+        Danish noun section further down.
+        """
+        heading = page.find('h2', id='Nederlands')
+        if heading is None:
+            # older MediaWiki markup: <h2><span class="mw-headline" id="Nederlands">
+            span = page.find('span', class_='mw-headline', id='Nederlands')
+            heading = span.find_parent('h2') if span else None
+        if heading is None:
+            return None
+        # current MediaWiki markup wraps every heading in <div class="mw-heading">
+        start = heading
+        if heading.parent is not None and 'mw-heading' in (heading.parent.get('class') or []):
+            start = heading.parent
+        parts = []
+        for element in start.next_siblings:
+            if element.name is None:
+                continue  # text between elements
+            if element.name == 'h2' or element.find('h2') is not None:
+                break  # next language
+            parts.append(str(element))
+        return BeautifulSoup(''.join(parts), 'html.parser')
 
     def try_get_sound_file_url(self):
         """Extract sound file URL from the Uitspraak section"""

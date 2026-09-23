@@ -61,3 +61,10 @@ def test_try_download_image(huis_word):
     path = huis_word.try_download_image()
     assert path is not None
     assert path.exists()
+
+
+def test_article_ignores_other_language_sections(tmp_path):
+    # 'sinds' is a Dutch preposition; the page also has a Danish neuter noun section
+    word = DutchWiktionaryWord('sinds', tmp_path)
+    assert word.try_get_part_of_speech() == 'voorzetsel'
+    assert word.try_get_article() is None
