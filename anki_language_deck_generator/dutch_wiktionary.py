@@ -22,6 +22,7 @@ class DutchWiktionaryWord:
     def __init__(self, word, working_dir, session=None):
         self.working_dir = Path(working_dir)
         self.word = word
+        self.page_title = self.wiktionary_page_title(word)
         self.session = session or make_session()
         response = get_with_retry(
             self.session,
@@ -32,18 +33,19 @@ class DutchWiktionaryWord:
                 'prop': 'text|langlinks',
                 'formatversion': '2',
                 'utf8': '1',
-                'page': word,
+                'page': self.page_title,
             },
         )
         if response.status_code != 200:
             hint = ' (rate limited, try again later)' if response.status_code == 429 else ''
             raise WiktionaryUnavailableError(
-                f"HTTP error {response.status_code} from Dutch Wiktionary when looking up '{word}'{hint}"
+                f"HTTP error {response.status_code} from Dutch Wiktionary "
+                f"when looking up '{self.page_title}'{hint}"
             )
 
         data = response.json()
         if 'error' in data:
-            raise WordNotFoundError(f"Word '{word}' not found in Dutch Wiktionary")
+            raise WordNotFoundError(f"Word '{self.page_title}' not found in Dutch Wiktionary")
 
         # Interwiki links to the same word on other-language Wiktionaries.
         # These are not translations; kept for backwards compatibility.
@@ -56,6 +58,19 @@ class DutchWiktionaryWord:
             raise WordNotFoundError(
                 f"Page '{word}' on Dutch Wiktionary has no Dutch (Nederlands) section"
             )
+
+    @staticmethod
+    def wiktionary_page_title(word):
+        """Page to look up for `word`.
+
+        Wiktionary lists reflexive verbs under the bare infinitive, so
+        'zich wassen' is looked up as 'wassen'. The full phrase is still used
+        for the card, the audio and the image.
+        """
+        parts = word.split()
+        if len(parts) > 1 and parts[0].lower() == 'zich':
+            return ' '.join(parts[1:])
+        return word
 
     @staticmethod
     def _dutch_section(page):

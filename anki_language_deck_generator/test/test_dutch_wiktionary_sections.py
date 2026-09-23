@@ -74,3 +74,23 @@ def test_dutch_noun_still_gets_its_article(tmp_path):
 
     assert word.try_get_article() == 'het'
     assert word.try_get_part_of_speech() == 'zelfstandig naamwoord'
+
+
+@pytest.mark.parametrize('word, title', [
+    ('zich wassen', 'wassen'),
+    ('Zich vergissen', 'vergissen'),
+    ('zich ziek melden', 'ziek melden'),
+    ('wassen', 'wassen'),
+    ('zich', 'zich'),
+])
+def test_reflexive_verbs_are_looked_up_without_zich(word, title):
+    assert DutchWiktionaryWord.wiktionary_page_title(word) == title
+
+
+def test_lookup_uses_the_bare_infinitive_but_keeps_the_phrase(tmp_path):
+    session = session_returning(DUTCH_NOUN_PAGE)
+    word = DutchWiktionaryWord('zich wassen', tmp_path, session=session)
+
+    assert session.get.call_args.kwargs['params']['page'] == 'wassen'
+    assert word.word == 'zich wassen'
+    assert word.page_title == 'wassen'

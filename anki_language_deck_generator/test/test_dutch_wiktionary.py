@@ -68,3 +68,10 @@ def test_article_ignores_other_language_sections(tmp_path):
     word = DutchWiktionaryWord('sinds', tmp_path)
     assert word.try_get_part_of_speech() == 'voorzetsel'
     assert word.try_get_article() is None
+
+
+def test_reflexive_verb_is_found_under_the_bare_infinitive(tmp_path):
+    # Wiktionary has no 'zich wassen' page, only 'wassen'
+    word = DutchWiktionaryWord('zich wassen', tmp_path)
+    assert word.try_get_part_of_speech() == 'werkwoord'
+    assert word.try_get_article() is None
