@@ -193,18 +193,21 @@ class AnkiDeckGenerator:
             enrichment = self._fetch_dutch_wiktionary(word, headword)
         article = enrichment.get('article') or given_article
         if given_article and article != given_article:
-            self.warnings.append((
-                word,
-                f"Dutch Wiktionary gives the article '{article}', the card uses that",
-            ))
+            if given_article in article.split('/'):
+                # Wiktionary allows both articles ('de/het'); the typed one is fine
+                article = given_article
+            else:
+                self.warnings.append((
+                    word,
+                    f"Dutch Wiktionary gives the article '{article}', the card uses that",
+                ))
         image_file = enrichment.get('image_file')
         transcription = enrichment.get('transcription')
         part_of_speech = enrichment.get('part_of_speech')
         plural = enrichment.get('plural')
 
-        # When an article was typed, the audio says the article shown on the card
-        spoken = f'{article} {headword}' if given_article and article else word
-        sound_file = self.voice.download_sound(spoken)
+        # The audio is the bare word, never the article
+        sound_file = self.voice.download_sound(headword)
         if image_file is None:
             image_file = self.image_downloader.download_image(word)
 

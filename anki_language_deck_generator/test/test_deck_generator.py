@@ -148,16 +148,37 @@ def test_wiktionary_article_wins_over_a_wrong_one_with_a_note(generator):
 
     [note] = generator.deck.notes
     assert note.fields[0] == 'de ziek'
-    # the audio says what the card shows, not the wrong article that was typed
-    generator.mocks.voice.download_sound.assert_called_once_with('de ziek')
     assert generator.warnings == [
         ('het ziek', "Dutch Wiktionary gives the article 'de', the card uses that")
     ]
 
 
-def test_audio_is_the_word_as_typed_when_no_article_was_given(generator):
+@pytest.mark.parametrize('word', ['ziek', 'de ziek', 'het ziek'])
+def test_audio_is_the_bare_word_without_article(generator, word):
+    generator.add_word(word)
+
+    generator.mocks.voice.download_sound.assert_called_once_with('ziek')
+
+
+def test_typed_article_is_kept_when_wiktionary_allows_both(generator):
+    generator.mocks.wiktionary.return_value.try_get_article.return_value = 'de/het'
+
+    generator.add_word('het ziek')
+
+    [note] = generator.deck.notes
+    assert note.fields[0] == 'het ziek'
+    generator.mocks.voice.download_sound.assert_called_once_with('ziek')
+    assert generator.warnings == []
+    assert generator.failed_words == []
+
+
+def test_both_gender_article_is_shown_when_none_was_typed(generator):
+    generator.mocks.wiktionary.return_value.try_get_article.return_value = 'de/het'
+
     generator.add_word('ziek')
 
+    [note] = generator.deck.notes
+    assert note.fields[0] == 'de/het ziek'
     generator.mocks.voice.download_sound.assert_called_once_with('ziek')
 
 

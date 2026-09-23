@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.2 (2026-09-24)
+
+### Fixed
+- Nouns entered with an article failed with "No such file or directory: ...\de\het ...mp3" when Dutch Wiktionary gives the article "de/het": the article was passed to the speech synthesizer and its slash became a folder. The audio is the bare word again, without any article, as it was before 0.6.0.
+- When Dutch Wiktionary allows both articles ("de/het") and one of them was typed, the card keeps the typed article instead of showing "de/het" with a note.
+
 ## 0.6.1 (2026-09-24)
 
 ### Fixed
